@@ -1,0 +1,11 @@
+{
+  "domain": "entia",
+  "name": "Entia",
+  "codeowners": ["@dsoklic"],
+  "config_flow": true,
+  "documentation": "https://github.com/dsoklic/HomeAssistant-Entia",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "1.0.0"
+}
