@@ -29,6 +29,23 @@ from homeassistant.helpers import entity_registry as er
 
 from tests.common import MockConfigEntry
 
+
+def _setup_auto_update(mock_api_client: AsyncMock) -> None:
+    """Make set_device_attribute automatically reflect in get_devices return value.
+
+    This simulates the real API behaviour where a subsequent GET after a PUT
+    returns the newly written value, so _handle_coordinator_update receives the
+    position we commanded (matching _pending_api_value) rather than stale data.
+    """
+
+    async def _side_effect(device_id: int, attr_id: int, value: int) -> None:
+        mock_api_client.get_devices.return_value = [
+            {"id": device_id, "attributes": [{"id": attr_id, "value": value}]}
+        ]
+
+    mock_api_client.set_device_attribute.side_effect = _side_effect
+
+
 MOCK_COVER_ID = 42475
 MOCK_COVER_FLAT = {
     "flat": {
@@ -229,6 +246,7 @@ async def test_set_cover_tilt_position(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
+    _setup_auto_update(mock_api_client)
     entity_id = _entity_id(hass)
 
     await hass.services.async_call(
@@ -258,6 +276,7 @@ async def test_open_cover_tilt(
     mock_api_client: AsyncMock,
 ) -> None:
     """Test that open_cover_tilt levels the slats (2 API units back from base)."""
+    _setup_auto_update(mock_api_client)
     entity_id = _entity_id(hass)
 
     await hass.services.async_call(
@@ -287,6 +306,7 @@ async def test_close_cover_tilt(
     mock_api_client: AsyncMock,
 ) -> None:
     """Test that close_cover_tilt returns slats to base position."""
+    _setup_auto_update(mock_api_client)
     entity_id = _entity_id(hass)
 
     await hass.services.async_call(
@@ -322,6 +342,7 @@ async def test_open_cover_tilt_after_upward_move(
     mock_api_client: AsyncMock,
 ) -> None:
     """Test that open_cover_tilt nudges toward closed after an upward move."""
+    _setup_auto_update(mock_api_client)
     entity_id = _entity_id(hass)
 
     await hass.services.async_call(
@@ -357,6 +378,7 @@ async def test_position_command_resets_tilt(
     mock_api_client: AsyncMock,
 ) -> None:
     """Test that a position command resets tilt state to 0."""
+    _setup_auto_update(mock_api_client)
     entity_id = _entity_id(hass)
 
     await hass.services.async_call(

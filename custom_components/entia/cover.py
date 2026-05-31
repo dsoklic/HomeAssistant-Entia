@@ -9,12 +9,12 @@ from homeassistant.components.cover import (
     CoverEntity,
     CoverEntityFeature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_BLIND_POSITION, BLIND_TILT_RANGE, DOMAIN
+from .const import ATTR_BLIND_MOVING, ATTR_BLIND_POSITION, BLIND_TILT_RANGE, DOMAIN
 from .coordinator import EntiaConfigEntry, EntiaCoordinator
 
 
@@ -62,6 +62,7 @@ class EntiaCover(CoordinatorEntity[EntiaCoordinator], CoverEntity):
         ]
         self._tilt_position: int = 0
         self._last_moved_down: bool = True
+        self._pending_api_value: int | None = None
 
     @property
     def available(self) -> bool:
@@ -94,6 +95,7 @@ class EntiaCover(CoordinatorEntity[EntiaCoordinator], CoverEntity):
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
+        self._pending_api_value = 0
         await self.coordinator.client.set_device_attribute(
             self._device_id, ATTR_BLIND_POSITION, 0
         )
@@ -104,6 +106,7 @@ class EntiaCover(CoordinatorEntity[EntiaCoordinator], CoverEntity):
 
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the cover."""
+        self._pending_api_value = 100
         await self.coordinator.client.set_device_attribute(
             self._device_id, ATTR_BLIND_POSITION, 100
         )
@@ -117,6 +120,7 @@ class EntiaCover(CoordinatorEntity[EntiaCoordinator], CoverEntity):
         api_value = 100 - kwargs[ATTR_POSITION]
         if api_value != self._base_api_position:
             self._last_moved_down = api_value > self._base_api_position
+        self._pending_api_value = api_value
         await self.coordinator.client.set_device_attribute(
             self._device_id, ATTR_BLIND_POSITION, api_value
         )
@@ -130,11 +134,37 @@ class EntiaCover(CoordinatorEntity[EntiaCoordinator], CoverEntity):
         offset = round(tilt / 100 * BLIND_TILT_RANGE)
         sign = -1 if self._last_moved_down else 1
         api_value = max(0, min(100, self._base_api_position + sign * offset))
+        self._pending_api_value = api_value
         await self.coordinator.client.set_device_attribute(
             self._device_id, ATTR_BLIND_POSITION, api_value
         )
         self._tilt_position = tilt
         await self.coordinator.async_refresh()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Resync derived tilt state when position changes externally."""
+        device = self.coordinator.data.get(self._device_id)
+        if device is not None:
+            attrs = device["attributes"]
+            new_raw = attrs.get(ATTR_BLIND_POSITION)
+            is_moving = bool(attrs.get(ATTR_BLIND_MOVING, 0))
+            if new_raw is not None and not is_moving:
+                if (
+                    self._pending_api_value is not None
+                    and new_raw == self._pending_api_value
+                ):
+                    self._pending_api_value = None
+                else:
+                    sign = -1 if self._last_moved_down else 1
+                    delta = (new_raw - self._base_api_position) * sign
+                    if 0 <= delta <= BLIND_TILT_RANGE:
+                        self._tilt_position = round(delta / BLIND_TILT_RANGE * 100)
+                    else:
+                        self._last_moved_down = new_raw > self._base_api_position
+                        self._base_api_position = new_raw
+                        self._tilt_position = 0
+        super()._handle_coordinator_update()
 
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         """Level the slats (parallel = max light)."""

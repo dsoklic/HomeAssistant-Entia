@@ -3,6 +3,7 @@
 DOMAIN = "entia"
 ATTR_LIGHT_STATE = 401
 ATTR_BLIND_POSITION = 601
+ATTR_BLIND_MOVING = 603  # 1 = moving, 0 = idle
 BLIND_TILT_RANGE = (
     3  # API units: 0 = slats pointing down, 3 = slats parallel (max light)
 )
