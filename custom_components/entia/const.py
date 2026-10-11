@@ -13,10 +13,15 @@ ATTR_TEMPERATURE = 801
 # transmitted in half-degree units, so divide/multiply by TEMP_SCALE.
 ATTR_HMI_INSIDE_TEMP = 1103
 ATTR_HMI_TARGET_TEMP = 1105
-ATTR_HMI_HVAC_MODE = 1107  # reserved; value mapping not yet confirmed
+ATTR_HMI_HVAC_MODE = 1107
 TEMP_SCALE = 2
 HMI_MIN_TEMP = 10
 HMI_MAX_TEMP = 30
+
+# HMI_HVAC_MODE (attribute 1107) values.
+HVAC_MODE_OFF = 0
+HVAC_MODE_COOL = 1
+HVAC_MODE_HEAT = 2
 
 ATTR_HRV_MODE = 3701  # 0=pass-through, 1=heat_recovery
 ATTR_HRV_SPEED = 3702  # 0=off, 1=low, 2=medium, 3=high
