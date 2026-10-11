@@ -24,12 +24,15 @@
         }
     },
     "entity": {
-        "select": {
-            "ventilation_mode": {
-                "name": "Mode",
-                "state": {
-                    "heat_recovery": "Heat recovery",
-                    "pass_through": "Pass-through"
+        "climate": {
+            "ventilation": {
+                "state_attributes": {
+                    "preset_mode": {
+                        "state": {
+                            "heat_recovery": "Heat recovery",
+                            "pass_through": "Bypass"
+                        }
+                    }
                 }
             }
         }

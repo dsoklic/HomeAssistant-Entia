@@ -68,6 +68,8 @@ No subscription message needed — the server streams all `attribute_event` mess
 | 1105 | HMI (climate) | Target temperature, raw (÷2 → °C); writable |
 | 1106 | HMI (climate) | Fan speed (value mapping not yet confirmed) |
 | 1107 | HMI (climate) | HVAC mode: 0=off, 1=cool, 2=heat; writable |
+| 3701 | HRV (ventilation) | Mode: 0=pass-through (bypass), 1=heat recovery; writable |
+| 3702 | HRV (ventilation) | Fan speed: 0=off, 1=low, 2=medium, 3=high; writable |
 | 2101 | Heating output (`device_type_id 2100`, one per room) | Valve state: 1=open (actively heating), 0=closed |
 
 ### Architecture
@@ -82,6 +84,8 @@ Each 5-minute fallback poll makes two requests:
 2. `GET /flat/device` → device states with inline attributes
 
 Lights are identified by the presence of `attribute_id 401` in their attributes dict. Climate (per-room heating) entities are identified by the presence of both `1103` (inside temp) and `1105` (target temp), i.e. the HMI device (`device_type_id 1100`). The climate entity exposes current + target temperature and HVAC mode (off/heat/cool via attribute 1107: 0=off, 1=cool, 2=heat), with `hvac_action`. `hvac_action` comes from the valve attribute `2101` on the device in the same `room_id` (open → heating/cooling, closed → idle); if a room has no such device it is estimated from current vs target temperature. The coordinator keeps each device's `room_id` for this. Fan-speed (1106) control is still deferred until its value mapping is confirmed.
+
+The heat recovery ventilation unit (identified by attribute `3702`) is a second climate entity, `EntiaHrvClimate`, that can only blow air: HVAC modes off/fan_only (speed 0 = off), fan modes low/medium/high (3702), and presets heat_recovery/pass_through (3701). Turning it on restores the last speed seen running (default low). There are no separate fan or select entities.
 
 ## Config flow
 

@@ -8,9 +8,7 @@ from .coordinator import EntiaConfigEntry, EntiaCoordinator
 _PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
     Platform.COVER,
-    Platform.FAN,
     Platform.LIGHT,
-    Platform.SELECT,
     Platform.SENSOR,
 ]
 

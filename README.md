@@ -7,11 +7,10 @@ A custom integration for the [Entia](https://entia.si/) smart home platform.
 | Platform | Description |
 |---|---|
 | `climate` | Per-room heating: current/target temperature, off/heat/cool mode, heating/idle indicator |
+| `climate` | Heat recovery ventilation (fan-only): off/on, low/medium/high fan speed, heat recovery/bypass preset |
 | `light` | On/off control for Entia lights |
 | `cover` | Blind position and tilt control |
-| `fan` | Heat recovery ventilation units |
 | `sensor` | Temperature sensors |
-| `select` | Mode/setting selectors |
 
 ## Installation
 
