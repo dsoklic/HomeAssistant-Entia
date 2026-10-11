@@ -80,6 +80,7 @@ class EntiaCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
                 result[device_id] = {
                     "id": device_id,
                     "name": label_map.get(device_id) or str(device_id),
+                    "room_id": device.get("room_id"),
                     "attributes": attributes,
                 }
         except AuthError as err:
