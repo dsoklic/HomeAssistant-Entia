@@ -5,6 +5,7 @@ from typing import Any
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
@@ -14,14 +15,33 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    ATTR_HMI_HVAC_MODE,
     ATTR_HMI_INSIDE_TEMP,
     ATTR_HMI_TARGET_TEMP,
     DOMAIN,
     HMI_MAX_TEMP,
     HMI_MIN_TEMP,
+    HVAC_MODE_COOL,
+    HVAC_MODE_HEAT,
+    HVAC_MODE_OFF,
     TEMP_SCALE,
 )
 from .coordinator import EntiaConfigEntry, EntiaCoordinator
+
+# Entia HMI_HVAC_MODE (attribute 1107) value <-> Home Assistant mode.
+_VALUE_TO_HVAC_MODE: dict[int, HVACMode] = {
+    HVAC_MODE_OFF: HVACMode.OFF,
+    HVAC_MODE_COOL: HVACMode.COOL,
+    HVAC_MODE_HEAT: HVACMode.HEAT,
+}
+_HVAC_MODE_TO_VALUE: dict[HVACMode, int] = {
+    mode: value for value, mode in _VALUE_TO_HVAC_MODE.items()
+}
+_VALUE_TO_HVAC_ACTION: dict[int, HVACAction] = {
+    HVAC_MODE_OFF: HVACAction.OFF,
+    HVAC_MODE_COOL: HVACAction.COOLING,
+    HVAC_MODE_HEAT: HVACAction.HEATING,
+}
 
 
 async def async_setup_entry(
@@ -45,9 +65,13 @@ class EntiaClimate(CoordinatorEntity[EntiaCoordinator], ClimateEntity):
     _attr_has_entity_name = True
     _attr_name = None
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_hvac_modes = [HVACMode.HEAT]
-    _attr_hvac_mode = HVACMode.HEAT
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF
+    )
+    _enable_turn_on_off_backwards_compatibility = False
     _attr_target_temperature_step = 1 / TEMP_SCALE
     _attr_min_temp = HMI_MIN_TEMP
     _attr_max_temp = HMI_MAX_TEMP
@@ -68,12 +92,16 @@ class EntiaClimate(CoordinatorEntity[EntiaCoordinator], ClimateEntity):
         """Return True if the device is present in the latest coordinator data."""
         return super().available and self._device_id in self.coordinator.data
 
-    def _temp(self, attribute_id: int) -> float | None:
-        """Return a scaled temperature attribute, or None if absent."""
+    def _attr(self, attribute_id: int) -> Any:
+        """Return a raw attribute value, or None if the device/attr is absent."""
         device = self.coordinator.data.get(self._device_id)
         if device is None:
             return None
-        raw = device["attributes"].get(attribute_id)
+        return device["attributes"].get(attribute_id)
+
+    def _temp(self, attribute_id: int) -> float | None:
+        """Return a scaled temperature attribute, or None if absent."""
+        raw = self._attr(attribute_id)
         if raw is None:
             return None
         return raw / TEMP_SCALE
@@ -88,6 +116,22 @@ class EntiaClimate(CoordinatorEntity[EntiaCoordinator], ClimateEntity):
         """Return the target temperature in °C."""
         return self._temp(ATTR_HMI_TARGET_TEMP)
 
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        """Return the current HVAC mode."""
+        raw = self._attr(ATTR_HMI_HVAC_MODE)
+        if raw is None:
+            return None
+        return _VALUE_TO_HVAC_MODE.get(raw, HVACMode.OFF)
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        """Return what the device is currently doing."""
+        raw = self._attr(ATTR_HMI_HVAC_MODE)
+        if raw is None:
+            return None
+        return _VALUE_TO_HVAC_ACTION.get(raw, HVACAction.OFF)
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set a new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
@@ -99,8 +143,17 @@ class EntiaClimate(CoordinatorEntity[EntiaCoordinator], ClimateEntity):
         await self.coordinator.async_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode.
+        """Set a new HVAC mode."""
+        value = _HVAC_MODE_TO_VALUE[hvac_mode]
+        await self.coordinator.client.set_device_attribute(
+            self._device_id, ATTR_HMI_HVAC_MODE, value
+        )
+        await self.coordinator.async_refresh()
 
-        Only HEAT is supported for now; mode switching will be added once the
-        device's HVAC-mode attribute (1107) value mapping is confirmed.
-        """
+    async def async_turn_on(self) -> None:
+        """Turn the heating on."""
+        await self.async_set_hvac_mode(HVACMode.HEAT)
+
+    async def async_turn_off(self) -> None:
+        """Turn the heating off."""
+        await self.async_set_hvac_mode(HVACMode.OFF)
