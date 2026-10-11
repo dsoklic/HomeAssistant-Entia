@@ -8,6 +8,16 @@ BLIND_TILT_RANGE = (
     3  # API units: 0 = slats pointing down, 3 = slats parallel (max light)
 )
 ATTR_TEMPERATURE = 801
+
+# Per-room climate controller (HMI, device_type_id 1100). Temperatures are
+# transmitted in half-degree units, so divide/multiply by TEMP_SCALE.
+ATTR_HMI_INSIDE_TEMP = 1103
+ATTR_HMI_TARGET_TEMP = 1105
+ATTR_HMI_HVAC_MODE = 1107  # reserved; value mapping not yet confirmed
+TEMP_SCALE = 2
+HMI_MIN_TEMP = 10
+HMI_MAX_TEMP = 30
+
 ATTR_HRV_MODE = 3701  # 0=pass-through, 1=heat_recovery
 ATTR_HRV_SPEED = 3702  # 0=off, 1=low, 2=medium, 3=high
 

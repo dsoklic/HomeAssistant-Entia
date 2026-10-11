@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 from .coordinator import EntiaConfigEntry, EntiaCoordinator
 
 _PLATFORMS: list[Platform] = [
+    Platform.CLIMATE,
     Platform.COVER,
     Platform.FAN,
     Platform.LIGHT,

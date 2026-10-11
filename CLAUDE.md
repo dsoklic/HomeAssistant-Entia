@@ -12,7 +12,7 @@ Authentication: `POST /login` → JWT bearer token. The client re-authenticates 
 |---|---|
 | `GET /flat` | Flat structure with device labels (see below) |
 | `GET /flat/device` | Device list with current attribute values (see below) |
-| `PUT /flat/device/{id}/attribute/{attrId}` | Set attribute value, body `{"value": ...}` |
+| `PUT /flat/device/{id}/attribute/{attrId}/rt` | Set attribute value, body `{"value": ...}` (the `/rt` suffix actuates the device and triggers the WebSocket broadcast) |
 
 ### `GET /flat` response shape
 ```json
@@ -63,6 +63,11 @@ No subscription message needed — the server streams all `attribute_event` mess
 | 602 | Blind | Mirrors position during movement |
 | 603 | Blind | Moving indicator (1=moving, 0=idle) |
 | 801 | Sensor | Temperature raw value (÷2 → °C) |
+| 1103 | HMI (climate) | Inside/current temperature, raw (÷2 → °C) |
+| 1104 | HMI (climate) | Outside temperature, raw (÷2 → °C) |
+| 1105 | HMI (climate) | Target temperature, raw (÷2 → °C); writable |
+| 1106 | HMI (climate) | Fan speed (value mapping not yet confirmed) |
+| 1107 | HMI (climate) | HVAC mode (value mapping not yet confirmed) |
 
 ### Architecture
 `EntiaWsClient` (`client/ws_client.py`) connects via aiohttp WebSocket, reconnects with exponential backoff (2–300 s), and calls `EntiaCoordinator._on_ws_event()` on each `attribute_event`. The coordinator merges the single attribute change into a shallow copy of its data and calls `async_set_updated_data()` to immediately notify all entities.
@@ -75,7 +80,7 @@ Each 5-minute fallback poll makes two requests:
 1. `GET /flat` → build `{device_id: label}` map via `_build_label_map()`
 2. `GET /flat/device` → device states with inline attributes
 
-Lights are identified by the presence of `attribute_id 401` in their attributes dict.
+Lights are identified by the presence of `attribute_id 401` in their attributes dict. Climate (per-room heating) entities are identified by the presence of both `1103` (inside temp) and `1105` (target temp), i.e. the HMI device (`device_type_id 1100`). The climate entity exposes current + target temperature with a fixed `HEAT` mode; HVAC-mode (1107) and fan (1106) control are deferred until their value mappings are confirmed.
 
 ## Config flow
 

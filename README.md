@@ -6,6 +6,7 @@ A custom integration for the [Entia](https://entia.si/) smart home platform.
 
 | Platform | Description |
 |---|---|
+| `climate` | Per-room heating (current + target temperature) |
 | `light` | On/off control for Entia lights |
 | `cover` | Blind position and tilt control |
 | `fan` | Heat recovery ventilation units |
