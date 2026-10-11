@@ -67,7 +67,7 @@ No subscription message needed — the server streams all `attribute_event` mess
 | 1104 | HMI (climate) | Outside temperature, raw (÷2 → °C) |
 | 1105 | HMI (climate) | Target temperature, raw (÷2 → °C); writable |
 | 1106 | HMI (climate) | Fan speed (value mapping not yet confirmed) |
-| 1107 | HMI (climate) | HVAC mode (value mapping not yet confirmed) |
+| 1107 | HMI (climate) | HVAC mode: 0=off, 1=cool, 2=heat; writable |
 
 ### Architecture
 `EntiaWsClient` (`client/ws_client.py`) connects via aiohttp WebSocket, reconnects with exponential backoff (2–300 s), and calls `EntiaCoordinator._on_ws_event()` on each `attribute_event`. The coordinator merges the single attribute change into a shallow copy of its data and calls `async_set_updated_data()` to immediately notify all entities.
@@ -80,7 +80,7 @@ Each 5-minute fallback poll makes two requests:
 1. `GET /flat` → build `{device_id: label}` map via `_build_label_map()`
 2. `GET /flat/device` → device states with inline attributes
 
-Lights are identified by the presence of `attribute_id 401` in their attributes dict. Climate (per-room heating) entities are identified by the presence of both `1103` (inside temp) and `1105` (target temp), i.e. the HMI device (`device_type_id 1100`). The climate entity exposes current + target temperature with a fixed `HEAT` mode; HVAC-mode (1107) and fan (1106) control are deferred until their value mappings are confirmed.
+Lights are identified by the presence of `attribute_id 401` in their attributes dict. Climate (per-room heating) entities are identified by the presence of both `1103` (inside temp) and `1105` (target temp), i.e. the HMI device (`device_type_id 1100`). The climate entity exposes current + target temperature and HVAC mode (off/heat/cool via attribute 1107: 0=off, 1=cool, 2=heat), with `hvac_action`. Fan-speed (1106) control is still deferred until its value mapping is confirmed.
 
 ## Config flow
 

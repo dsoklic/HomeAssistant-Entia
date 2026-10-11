@@ -6,11 +6,17 @@ import pytest
 
 from homeassistant.components.climate import (
     ATTR_CURRENT_TEMPERATURE,
+    ATTR_HVAC_ACTION,
+    ATTR_HVAC_MODE,
     ATTR_TEMPERATURE,
     DOMAIN as CLIMATE_DOMAIN,
+    SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
+    HVACAction,
+    HVACMode,
 )
 from homeassistant.components.entia.const import (
+    ATTR_HMI_HVAC_MODE,
     ATTR_HMI_INSIDE_TEMP,
     ATTR_HMI_TARGET_TEMP,
     DOMAIN,
@@ -24,13 +30,14 @@ from tests.common import MockConfigEntry
 MOCK_DEVICE_ID = 42487
 
 # Room 2978 HMI from a real /flat/device dump: inside 52 -> 26.0 °C,
-# target 46 -> 23.0 °C.
+# target 46 -> 23.0 °C, mode 2 -> heat.
 MOCK_DEVICES_HMI = [
     {
         "id": MOCK_DEVICE_ID,
         "attributes": [
             {"id": ATTR_HMI_INSIDE_TEMP, "value": 52},
             {"id": ATTR_HMI_TARGET_TEMP, "value": 46},
+            {"id": ATTR_HMI_HVAC_MODE, "value": 2},
         ],
     }
 ]
@@ -68,9 +75,77 @@ async def test_climate_temperatures(
     await _setup(hass, mock_config_entry, mock_api_client)
 
     state = hass.states.get(_entity_id(hass))
-    assert state.state == "heat"
+    assert state.state == HVACMode.HEAT
     assert state.attributes[ATTR_CURRENT_TEMPERATURE] == 26.0
     assert state.attributes[ATTR_TEMPERATURE] == 23.0
+    assert state.attributes[ATTR_HVAC_ACTION] == HVACAction.HEATING
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected_mode", "expected_action"),
+    [
+        pytest.param(0, HVACMode.OFF, HVACAction.OFF, id="0->off"),
+        pytest.param(1, HVACMode.COOL, HVACAction.COOLING, id="1->cool"),
+        pytest.param(2, HVACMode.HEAT, HVACAction.HEATING, id="2->heat"),
+    ],
+)
+async def test_hvac_mode_mapping(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_api_client: AsyncMock,
+    raw_value: int,
+    expected_mode: HVACMode,
+    expected_action: HVACAction,
+) -> None:
+    """Raw HMI_HVAC_MODE values map to HA modes and actions (0=off,1=cool,2=heat)."""
+    await _setup(
+        hass,
+        mock_config_entry,
+        mock_api_client,
+        devices=[
+            {
+                "id": MOCK_DEVICE_ID,
+                "attributes": [
+                    {"id": ATTR_HMI_INSIDE_TEMP, "value": 52},
+                    {"id": ATTR_HMI_TARGET_TEMP, "value": 46},
+                    {"id": ATTR_HMI_HVAC_MODE, "value": raw_value},
+                ],
+            }
+        ],
+    )
+
+    state = hass.states.get(_entity_id(hass))
+    assert state.state == expected_mode
+    assert state.attributes[ATTR_HVAC_ACTION] == expected_action
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_value"),
+    [
+        pytest.param(HVACMode.OFF, 0, id="off->0"),
+        pytest.param(HVACMode.COOL, 1, id="cool->1"),
+        pytest.param(HVACMode.HEAT, 2, id="heat->2"),
+    ],
+)
+async def test_set_hvac_mode_writes_value(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_api_client: AsyncMock,
+    mode: HVACMode,
+    expected_value: int,
+) -> None:
+    """Selecting a mode writes the matching value to HMI_HVAC_MODE."""
+    await _setup(hass, mock_config_entry, mock_api_client)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {ATTR_ENTITY_ID: _entity_id(hass), ATTR_HVAC_MODE: mode},
+        blocking=True,
+    )
+    mock_api_client.set_device_attribute.assert_called_once_with(
+        MOCK_DEVICE_ID, ATTR_HMI_HVAC_MODE, expected_value
+    )
 
 
 async def test_set_temperature_writes_scaled_value(
@@ -123,7 +198,7 @@ async def test_climate_unavailable_when_missing_from_data(
     """The entity becomes unavailable when the device disappears."""
     await _setup(hass, mock_config_entry, mock_api_client)
     entity_id = _entity_id(hass)
-    assert hass.states.get(entity_id).state == "heat"
+    assert hass.states.get(entity_id).state == HVACMode.HEAT
 
     mock_api_client.get_devices.return_value = []
     coordinator = mock_config_entry.runtime_data
@@ -159,6 +234,7 @@ async def test_target_temperature_conversion(
                 "attributes": [
                     {"id": ATTR_HMI_INSIDE_TEMP, "value": 52},
                     {"id": ATTR_HMI_TARGET_TEMP, "value": raw_value},
+                    {"id": ATTR_HMI_HVAC_MODE, "value": 2},
                 ],
             }
         ],
