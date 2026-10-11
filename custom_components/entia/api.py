@@ -108,6 +108,6 @@ class EntiaApiClient:
         """Set a device attribute value."""
         return await self._request(
             "PUT",
-            f"flat/device/{device_id}/attribute/{attribute_id}",
+            f"flat/device/{device_id}/attribute/{attribute_id}/rt",
             json={"value": value},
         )

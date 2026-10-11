@@ -75,7 +75,7 @@ class EntiaWsClient:
     def _handle_message(self, raw: str) -> None:
         try:
             msg = json.loads(raw)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return
         if msg.get("event") != "attribute_event":
             return
