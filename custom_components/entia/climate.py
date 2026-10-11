@@ -15,6 +15,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    ATTR_HEATING_VALVE,
     ATTR_HMI_HVAC_MODE,
     ATTR_HMI_INSIDE_TEMP,
     ATTR_HMI_TARGET_TEMP,
@@ -37,8 +38,8 @@ _VALUE_TO_HVAC_MODE: dict[int, HVACMode] = {
 _HVAC_MODE_TO_VALUE: dict[HVACMode, int] = {
     mode: value for value, mode in _VALUE_TO_HVAC_MODE.items()
 }
-_VALUE_TO_HVAC_ACTION: dict[int, HVACAction] = {
-    HVAC_MODE_OFF: HVACAction.OFF,
+# Action while the room's valve is open; a closed valve means idle.
+_VALUE_TO_ACTIVE_ACTION: dict[int, HVACAction] = {
     HVAC_MODE_COOL: HVACAction.COOLING,
     HVAC_MODE_HEAT: HVACAction.HEATING,
 }
@@ -99,6 +100,19 @@ class EntiaClimate(CoordinatorEntity[EntiaCoordinator], ClimateEntity):
             return None
         return device["attributes"].get(attribute_id)
 
+    def _valve_open(self) -> bool | None:
+        """Return the room's valve state, or None if no valve device is known."""
+        device = self.coordinator.data.get(self._device_id)
+        if device is None or device.get("room_id") is None:
+            return None
+        for other in self.coordinator.data.values():
+            if (
+                other.get("room_id") == device["room_id"]
+                and ATTR_HEATING_VALVE in other["attributes"]
+            ):
+                return bool(other["attributes"][ATTR_HEATING_VALVE])
+        return None
+
     def _temp(self, attribute_id: int) -> float | None:
         """Return a scaled temperature attribute, or None if absent."""
         raw = self._attr(attribute_id)
@@ -130,7 +144,21 @@ class EntiaClimate(CoordinatorEntity[EntiaCoordinator], ClimateEntity):
         raw = self._attr(ATTR_HMI_HVAC_MODE)
         if raw is None:
             return None
-        return _VALUE_TO_HVAC_ACTION.get(raw, HVACAction.OFF)
+        active_action = _VALUE_TO_ACTIVE_ACTION.get(raw)
+        if active_action is None:
+            return HVACAction.OFF
+        valve_open = self._valve_open()
+        if valve_open is None:
+            # No valve device in this room: estimate from the temperatures.
+            current = self.current_temperature
+            target = self.target_temperature
+            if current is None or target is None:
+                return None
+            if raw == HVAC_MODE_HEAT:
+                valve_open = current < target
+            else:
+                valve_open = current > target
+        return active_action if valve_open else HVACAction.IDLE
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set a new target temperature."""

@@ -23,6 +23,9 @@ HVAC_MODE_OFF = 0
 HVAC_MODE_COOL = 1
 HVAC_MODE_HEAT = 2
 
+# Per-room heating output (device_type_id 2100), same room as the HMI.
+ATTR_HEATING_VALVE = 2101  # 1 = valve open (actively heating), 0 = closed
+
 ATTR_HRV_MODE = 3701  # 0=pass-through, 1=heat_recovery
 ATTR_HRV_SPEED = 3702  # 0=off, 1=low, 2=medium, 3=high
 

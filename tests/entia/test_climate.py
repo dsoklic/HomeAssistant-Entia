@@ -16,6 +16,7 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.components.entia.const import (
+    ATTR_HEATING_VALVE,
     ATTR_HMI_HVAC_MODE,
     ATTR_HMI_INSIDE_TEMP,
     ATTR_HMI_TARGET_TEMP,
@@ -28,19 +29,36 @@ from homeassistant.helpers import entity_registry as er
 from tests.common import MockConfigEntry
 
 MOCK_DEVICE_ID = 42487
+MOCK_VALVE_DEVICE_ID = 42486
+MOCK_ROOM_ID = 2978
 
-# Room 2978 HMI from a real /flat/device dump: inside 52 -> 26.0 °C,
-# target 46 -> 23.0 °C, mode 2 -> heat.
-MOCK_DEVICES_HMI = [
-    {
+
+def _hmi(
+    mode: int = 2, inside: int = 52, target: int = 46, room_id: int | None = MOCK_ROOM_ID
+) -> dict:
+    """Return a room HMI device (defaults: 26.0 °C inside, 23.0 °C target, heat)."""
+    return {
         "id": MOCK_DEVICE_ID,
+        "room_id": room_id,
         "attributes": [
-            {"id": ATTR_HMI_INSIDE_TEMP, "value": 52},
-            {"id": ATTR_HMI_TARGET_TEMP, "value": 46},
-            {"id": ATTR_HMI_HVAC_MODE, "value": 2},
+            {"id": ATTR_HMI_INSIDE_TEMP, "value": inside},
+            {"id": ATTR_HMI_TARGET_TEMP, "value": target},
+            {"id": ATTR_HMI_HVAC_MODE, "value": mode},
         ],
     }
-]
+
+
+def _valve(value: int, room_id: int = MOCK_ROOM_ID) -> dict:
+    """Return a room heating-output device (device_type_id 2100)."""
+    return {
+        "id": MOCK_VALVE_DEVICE_ID,
+        "room_id": room_id,
+        "attributes": [{"id": ATTR_HEATING_VALVE, "value": value}],
+    }
+
+
+# Room 2978 from a real /flat/device dump: heat mode with the valve open.
+MOCK_DEVICES_HMI = [_hmi(), _valve(1)]
 
 
 def _entity_id(hass: HomeAssistant) -> str:
@@ -102,21 +120,85 @@ async def test_hvac_mode_mapping(
         hass,
         mock_config_entry,
         mock_api_client,
-        devices=[
-            {
-                "id": MOCK_DEVICE_ID,
-                "attributes": [
-                    {"id": ATTR_HMI_INSIDE_TEMP, "value": 52},
-                    {"id": ATTR_HMI_TARGET_TEMP, "value": 46},
-                    {"id": ATTR_HMI_HVAC_MODE, "value": raw_value},
-                ],
-            }
-        ],
+        devices=[_hmi(mode=raw_value), _valve(1)],
     )
 
     state = hass.states.get(_entity_id(hass))
     assert state.state == expected_mode
     assert state.attributes[ATTR_HVAC_ACTION] == expected_action
+
+
+@pytest.mark.parametrize(
+    ("mode", "valve", "expected_action"),
+    [
+        pytest.param(2, 1, HVACAction.HEATING, id="heat-valve-open"),
+        pytest.param(2, 0, HVACAction.IDLE, id="heat-valve-closed"),
+        pytest.param(1, 0, HVACAction.IDLE, id="cool-valve-closed"),
+        pytest.param(0, 1, HVACAction.OFF, id="off"),
+    ],
+)
+async def test_hvac_action_follows_valve(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_api_client: AsyncMock,
+    mode: int,
+    valve: int,
+    expected_action: HVACAction,
+) -> None:
+    """hvac_action reflects the room's valve (attribute 2101), not just the mode."""
+    await _setup(
+        hass,
+        mock_config_entry,
+        mock_api_client,
+        devices=[_hmi(mode=mode), _valve(valve)],
+    )
+
+    assert hass.states.get(_entity_id(hass)).attributes[ATTR_HVAC_ACTION] == expected_action
+
+
+async def test_hvac_action_ignores_valve_in_other_room(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_api_client: AsyncMock,
+) -> None:
+    """A valve in another room is not used; the action falls back to temperatures."""
+    await _setup(
+        hass,
+        mock_config_entry,
+        mock_api_client,
+        devices=[_hmi(inside=52, target=46), _valve(1, room_id=9999)],
+    )
+
+    assert hass.states.get(_entity_id(hass)).attributes[ATTR_HVAC_ACTION] == HVACAction.IDLE
+
+
+@pytest.mark.parametrize(
+    ("mode", "inside", "target", "expected_action"),
+    [
+        pytest.param(2, 45, 48, HVACAction.HEATING, id="heat-below-target"),
+        pytest.param(2, 52, 46, HVACAction.IDLE, id="heat-above-target"),
+        pytest.param(1, 52, 46, HVACAction.COOLING, id="cool-above-target"),
+        pytest.param(1, 45, 48, HVACAction.IDLE, id="cool-below-target"),
+    ],
+)
+async def test_hvac_action_fallback_without_valve(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_api_client: AsyncMock,
+    mode: int,
+    inside: int,
+    target: int,
+    expected_action: HVACAction,
+) -> None:
+    """Without a valve device the action is estimated from current vs target."""
+    await _setup(
+        hass,
+        mock_config_entry,
+        mock_api_client,
+        devices=[_hmi(mode=mode, inside=inside, target=target)],
+    )
+
+    assert hass.states.get(_entity_id(hass)).attributes[ATTR_HVAC_ACTION] == expected_action
 
 
 @pytest.mark.parametrize(
@@ -228,16 +310,7 @@ async def test_target_temperature_conversion(
         hass,
         mock_config_entry,
         mock_api_client,
-        devices=[
-            {
-                "id": MOCK_DEVICE_ID,
-                "attributes": [
-                    {"id": ATTR_HMI_INSIDE_TEMP, "value": 52},
-                    {"id": ATTR_HMI_TARGET_TEMP, "value": raw_value},
-                    {"id": ATTR_HMI_HVAC_MODE, "value": 2},
-                ],
-            }
-        ],
+        devices=[_hmi(target=raw_value)],
     )
 
     assert hass.states.get(_entity_id(hass)).attributes[ATTR_TEMPERATURE] == expected_temp
