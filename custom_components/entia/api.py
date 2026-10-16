@@ -6,6 +6,12 @@ import aiohttp
 
 BASE_URL = "https://api.entia.si/"
 
+# A hung server must not block a poll for aiohttp's default five minutes.
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
+# Status codes for a rejected token or login.
+_AUTH_REJECTED = (401, 403)
+
 
 class AuthError(Exception):
     """Authentication failed."""
@@ -42,38 +48,53 @@ class EntiaApiClient:
                     "device_model": "home_assistant",
                     "device_serial": "0000",
                 },
+                timeout=REQUEST_TIMEOUT,
             ) as resp:
-                if resp.status in (401, 403):
+                if resp.status in _AUTH_REJECTED:
                     raise AuthError("Invalid credentials")
                 resp.raise_for_status()
                 data = await resp.json()
-                self._token = data["token"]
-        except aiohttp.ClientError as err:
+        except (aiohttp.ClientError, TimeoutError) as err:
             raise CannotConnect(f"Cannot connect: {err}") from err
+        if not isinstance(data, dict) or not data.get("token"):
+            raise CannotConnect("Login response did not contain a token")
+        self._token = data["token"]
+
+    def invalidate_token(self) -> None:
+        """Forget the current token so the next request logs in again."""
+        self._token = None
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        """Make an authenticated request, re-authenticating once on 401."""
-        if self._token is None:
-            await self.authenticate()
+        """Make an authenticated request, logging in again if the token is rejected.
 
+        After a server restart the old token may be refused with 401 or 403; a
+        fresh login fixes that. A rejection of the fresh token raises AuthError.
+        """
+        await self.get_token()
+        status, data = await self._send(method, path, **kwargs)
+        if status in _AUTH_REJECTED:
+            await self.authenticate()
+            status, data = await self._send(method, path, **kwargs)
+            if status in _AUTH_REJECTED:
+                raise AuthError("Re-authentication failed")
+        return data
+
+    async def _send(self, method: str, path: str, **kwargs: Any) -> tuple[int, Any]:
+        """Send one request; return (status, body), body None if auth was rejected."""
         headers = {"Authorization": f"Bearer {self._token}"}
         try:
             async with self._session.request(
-                method, f"{BASE_URL}{path}", headers=headers, **kwargs
+                method,
+                f"{BASE_URL}{path}",
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+                **kwargs,
             ) as resp:
-                if resp.status == 401:
-                    await self.authenticate()
-                    headers = {"Authorization": f"Bearer {self._token}"}
-                    async with self._session.request(
-                        method, f"{BASE_URL}{path}", headers=headers, **kwargs
-                    ) as retry_resp:
-                        if retry_resp.status == 401:
-                            raise AuthError("Re-authentication failed")
-                        retry_resp.raise_for_status()
-                        return await retry_resp.json()
+                if resp.status in _AUTH_REJECTED:
+                    return resp.status, None
                 resp.raise_for_status()
-                return await resp.json()
-        except aiohttp.ClientError as err:
+                return resp.status, await resp.json()
+        except (aiohttp.ClientError, TimeoutError) as err:
             raise CannotConnect(f"Cannot connect: {err}") from err
 
     @property

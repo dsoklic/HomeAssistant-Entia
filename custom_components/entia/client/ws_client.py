@@ -13,14 +13,14 @@ from typing import Any
 
 import aiohttp
 
-from ..api import EntiaApiClient
+from ..api import AuthError, CannotConnect, EntiaApiClient
 
 WS_URL = "wss://ws.entia.si/"
 
 _LOGGER = logging.getLogger(__name__)
 
 _RECONNECT_DELAY_MIN = 2
-_RECONNECT_DELAY_MAX = 300
+_RECONNECT_DELAY_MAX = 60
 
 
 class EntiaWsClient:
@@ -30,16 +30,23 @@ class EntiaWsClient:
         self,
         api_client: EntiaApiClient,
         on_event: Callable[[int, int, Any], None],
+        on_reconnect: Callable[[], None] | None = None,
     ) -> None:
-        """Store the API client (for token and session) and the event callback."""
+        """Store the API client (for token and session) and the callbacks.
+
+        on_reconnect is called when a connection is re-established after a
+        failure, so events missed in between can be fetched over REST.
+        """
         self._api = api_client
         self._on_event = on_event
+        self._on_reconnect = on_reconnect
         self._running = False
 
     async def listen(self) -> None:
         """Connect and stream events, reconnecting on failure."""
         self._running = True
         delay = _RECONNECT_DELAY_MIN
+        catch_up = False
         while self._running:
             try:
                 token = await self._api.get_token()
@@ -49,6 +56,8 @@ class EntiaWsClient:
                 ) as ws:
                     _LOGGER.debug("Entia WebSocket connected")
                     delay = _RECONNECT_DELAY_MIN
+                    if catch_up and self._on_reconnect is not None:
+                        self._on_reconnect()
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             self._handle_message(msg.data)
@@ -59,12 +68,20 @@ class EntiaWsClient:
                             break
             except asyncio.CancelledError:
                 return
-            except aiohttp.ClientError as err:
+            except aiohttp.WSServerHandshakeError as err:
+                # After a server restart the old token may no longer be accepted.
+                self._api.invalidate_token()
+                _LOGGER.debug(
+                    "WebSocket handshake rejected (%s); retry in %ss", err.status, delay
+                )
+            except (aiohttp.ClientError, CannotConnect, AuthError) as err:
                 _LOGGER.debug(
                     "WebSocket connection error: %s; retry in %ss", err, delay
                 )
             except Exception:
                 _LOGGER.exception("Unexpected WebSocket error; retry in %ss", delay)
+            # A dropped or failed connection may have missed events.
+            catch_up = True
 
             if self._running:
                 await asyncio.sleep(delay)

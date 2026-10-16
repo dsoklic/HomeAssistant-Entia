@@ -52,7 +52,16 @@ class EntiaCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             username=config_entry.data[CONF_USERNAME],
             password=config_entry.data[CONF_PASSWORD],
         )
-        self.ws_client = EntiaWsClient(self.client, self._on_ws_event)
+        self.ws_client = EntiaWsClient(
+            self.client, self._on_ws_event, self._on_ws_reconnect
+        )
+
+    @callback
+    def _on_ws_reconnect(self) -> None:
+        """Fetch changes missed while the WebSocket was disconnected."""
+        self.config_entry.async_create_background_task(
+            self.hass, self.async_request_refresh(), "entia_ws_reconnect_refresh"
+        )
 
     @callback
     def _on_ws_event(self, device_id: int, attribute_id: int, value: Any) -> None:

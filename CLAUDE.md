@@ -4,7 +4,7 @@ Integration for the Entia smart home platform at `https://api.entia.si/`.
 
 ## API overview
 
-Authentication: `POST /login` → JWT bearer token. The client re-authenticates once on 401 before raising `AuthError`.
+Authentication: `POST /login` → JWT bearer token. If a request is rejected with 401 or 403 (e.g. the server restarted after an outage and no longer accepts the old token), the client logs in again once and retries; a 401/403 from `/login` itself, or on the retry, raises `AuthError`, which the coordinator turns into `ConfigEntryAuthFailed` (permanent, handled by the reauth flow). Requests time out after 30 s; timeouts and a login response without a token raise `CannotConnect`.
 
 ### Endpoints
 
@@ -73,7 +73,7 @@ No subscription message needed — the server streams all `attribute_event` mess
 | 2101 | Heating output (`device_type_id 2100`, one per room) | Valve state: 1=open (actively heating), 0=closed |
 
 ### Architecture
-`EntiaWsClient` (`client/ws_client.py`) connects via aiohttp WebSocket, reconnects with exponential backoff (2–300 s), and calls `EntiaCoordinator._on_ws_event()` on each `attribute_event`. The coordinator merges the single attribute change into a shallow copy of its data and calls `async_set_updated_data()` to immediately notify all entities.
+`EntiaWsClient` (`client/ws_client.py`) connects via aiohttp WebSocket, reconnects with exponential backoff (2–60 s), and calls `EntiaCoordinator._on_ws_event()` on each `attribute_event`. A rejected handshake drops the cached token (`invalidate_token()`) so the next attempt logs in again. After any reconnect following a drop or failure it calls `EntiaCoordinator._on_ws_reconnect()`, which requests an immediate REST refresh to catch up on missed events. The coordinator merges the single attribute change into a shallow copy of its data and calls `async_set_updated_data()` to immediately notify all entities.
 
 REST polling (5-minute fallback) handles initial load and any events missed during reconnection.
 
@@ -91,3 +91,4 @@ The heat recovery ventilation unit (identified by attribute `3702`) is a second 
 
 Unique ID is the username (no flat-level ID is exposed by the API). Title is `Entia ({username})`.
 Connectivity is verified by calling `authenticate()` + `get_flat()` before creating the entry.
+Reauth (`reauth_confirm`) asks only for the password, verifies it the same way, then updates the entry and reloads it.

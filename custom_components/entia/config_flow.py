@@ -1,5 +1,6 @@
 """Config flow for the Entia integration."""
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
@@ -20,6 +21,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_PASSWORD): str,
     }
 )
+STEP_REAUTH_DATA_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
 
 
 class EntiaConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -33,22 +35,10 @@ class EntiaConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            client = EntiaApiClient(
-                session=async_get_clientsession(self.hass),
-                username=user_input[CONF_USERNAME],
-                password=user_input[CONF_PASSWORD],
+            errors = await self._async_validate(
+                user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
             )
-            try:
-                await client.authenticate()
-                await client.get_flat()
-            except AuthError:
-                errors["base"] = "invalid_auth"
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception during Entia setup")
-                errors["base"] = "unknown"
-            else:
+            if not errors:
                 await self.async_set_unique_id(user_input[CONF_USERNAME])
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
@@ -59,3 +49,49 @@ class EntiaConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle a rejected login by asking for the password again."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm the new password and reload the entry."""
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+        username = entry.data[CONF_USERNAME]
+        if user_input is not None:
+            errors = await self._async_validate(username, user_input[CONF_PASSWORD])
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_PASSWORD: user_input[CONF_PASSWORD]}
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=STEP_REAUTH_DATA_SCHEMA,
+            description_placeholders={"username": username},
+            errors=errors,
+        )
+
+    async def _async_validate(self, username: str, password: str) -> dict[str, str]:
+        """Log in with the given credentials; return form errors, if any."""
+        client = EntiaApiClient(
+            session=async_get_clientsession(self.hass),
+            username=username,
+            password=password,
+        )
+        try:
+            await client.authenticate()
+            await client.get_flat()
+        except AuthError:
+            return {"base": "invalid_auth"}
+        except CannotConnect:
+            return {"base": "cannot_connect"}
+        except Exception:
+            _LOGGER.exception("Unexpected exception during Entia setup")
+            return {"base": "unknown"}
+        return {}
