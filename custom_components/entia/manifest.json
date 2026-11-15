@@ -1,6 +1,11 @@
 {
   "domain": "entia",
   "name": "Entia",
+  "categories": [
+    "hubs_protocols.smart_home_hubs",
+    "climate",
+    "blinds_curtains"
+  ],
   "codeowners": [
     "@dsoklic"
   ],
