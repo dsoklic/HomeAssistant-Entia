@@ -1,4 +1,6 @@
 {
   "name": "Entia",
-  "render_readme": true
+  "render_readme": true,
+  "country": "SI",
+  "homeassistant": "2025.2.0"
 }
