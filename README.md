@@ -1,5 +1,8 @@
 # Entia Home Assistant Integration
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![Validate](https://github.com/dsoklic/HomeAssistant-Entia/actions/workflows/validate.yml/badge.svg)](https://github.com/dsoklic/HomeAssistant-Entia/actions/workflows/validate.yml)
+
 A custom integration for the [Entia](https://entia.si/) smart home platform.
 
 ## Supported entities
@@ -43,3 +46,7 @@ Tests depend on the Home Assistant custom component test framework:
 pip install pytest-homeassistant-custom-component
 pytest tests/
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
